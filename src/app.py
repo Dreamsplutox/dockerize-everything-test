@@ -1,4 +1,4 @@
-#COMMENTAIRE DE QUALITE
+#COMMENTAIRE DE QUALITE SUPERIEURE
 import pygame
 pygame.init()
 
