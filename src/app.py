@@ -1,3 +1,4 @@
+#COMMENTAIRE
 import pygame
 pygame.init()
 
