@@ -1,5 +1,15 @@
-#COMMENTAIRE DE QUALITE SUPERIEURE ++
+from random import *
 import pygame
+import psycopg2 as p
+con = p.connect("dbname='python_game_data' user='postgres' host='192.168.99.100' password='postgres'")
+cur = con.cursor()
+cur.execute("select * from game_text")
+rows=cur.fetchall()
+
+cur.execute("select score from scores ORDER BY score DESC")
+score=cur.fetchall()
+
+#Game part
 pygame.init()
 
 win = pygame.display.set_mode((500, 480))
@@ -11,10 +21,21 @@ walkRight = [pygame.image.load('images/R1.png'), pygame.image.load('images/R2.pn
 walkLeft = [pygame.image.load('images/L1.png'), pygame.image.load('images/L2.png'), pygame.image.load('images/L3.png'), pygame.image.load('images/L4.png'), pygame.image.load('images/L5.png'), pygame.image.load('images/L6.png'), pygame.image.load('images/L7.png'), pygame.image.load('images/L8.png'), pygame.image.load('images/L9.png')]
 bg = pygame.image.load('images/bg.jpg')
 char = pygame.image.load('images/standing.png')
+sananes_L = pygame.image.load('images/sananes_L.png')
+sananes_R = pygame.image.load('images/sananes_R.png')
 
 clock = pygame.time.Clock()
 
-score = 0
+bulletSound = pygame.mixer.Sound('sounds/bullet.wav')
+hitSound = pygame.mixer.Sound('sounds/hit.wav')
+screamSound = pygame.mixer.Sound('sounds/scream.wav')
+deathSound = pygame.mixer.Sound('sounds/goblin_death_2.wav')
+winSound = pygame.mixer.Sound('sounds/win.wav')
+looseSound = pygame.mixer.Sound("sounds/loose_zelda.wav")
+
+music = pygame.mixer.music.load('sounds/music.mp3')
+pygame.mixer.music.set_volume(0.4)
+pygame.mixer.music.play(-1)
 
 class player(object):
 	def __init__(self, x, y, width, height):
@@ -25,11 +46,13 @@ class player(object):
 		self.vel = 5
 		self.isJump = False
 		self.jumpCount = 10
-		self.left = False
+		self.left = True
 		self.right = False
 		self.walkCount = 0
 		self.standing = True
 		self.hitbox = (self.x + 17, self.y + 11, 29, 52)
+		self.lives = 5
+		self.score = 0
 
 	def draw(self, win):
 		if self.walkCount + 1 >= 27:
@@ -49,18 +72,60 @@ class player(object):
 				win.blit(walkLeft[0], (self.x,self.y))
 		self.hitbox = (self.x + 17, self.y + 11, 29, 52)
 		#pygame.draw.rect(win, (255,0,0), self.hitbox, 2)
+	def hit(self):
+		self.isJump = False
+		self.jumpCount = 10
+		self.x = 60
+		self.y = 410
+		self.walkCount = 0
+		self.lives -= 1
+		self.score -= 5
+		if self.lives <= 0:
+			font1 = pygame.font.SysFont('comicsans', 28, True)
+			text = font1.render(rows[1][2], 1, (255,0,0))
+			win.blit(text, (250 - (text.get_width()/2), 200))
+			pygame.display.update()
+			pygame.mixer.music.stop()
+			pygame.mixer.music.set_volume(0.8)
+			looseSound.play()
+			while True:
+				for event in pygame.event.get():
+					if event.type == pygame.QUIT:
+						i = 301
+						cur.execute("INSERT INTO scores (score) VALUES (%s);", (self.score, ))
+						con.commit()
+						pygame.quit()
+
+
+		font1 = pygame.font.SysFont('comicsans', 100)
+		text = font.render('-5', 1, (255,0,0))
+		win.blit(text, (250 - (text.get_width()/2), 200))
+		pygame.display.update()
+		i = 0
+		while i < 200:
+			pygame.time.delay(10)
+			i += 1
+			for event in pygame.event.get():
+				if event.type == pygame.QUIT:
+					i = 301
+					pygame.quit()
 
 class projectile(object):
 	def __init__(self, x, y, radius, color, facing):
 		self.x = x
-		self.y = y
+		self.y = y - 12
 		self.radius = radius
 		self.color = color
 		self.facing = facing
 		self.vel = 8 * facing
 
 	def draw(self, win):
-		pygame.draw.circle(win, self.color, (self.x, self.y), self.radius) #add , 1 to fill differently
+		if self.facing == -1:
+			win.blit(sananes_L, (self.x, self.y))
+		else:
+			win.blit(sananes_R, (self.x, self.y))
+
+	
 
 class enemy(object):
 	walkRight = [pygame.image.load('images/R1E.png'), pygame.image.load('images/R2E.png'), pygame.image.load('images/R3E.png'), pygame.image.load('images/R4E.png'), pygame.image.load('images/R5E.png'), pygame.image.load('images/R6E.png'), pygame.image.load('images/R7E.png'), pygame.image.load('images/R8E.png'), pygame.image.load('images/R9E.png'), pygame.image.load('images/R10E.png'), pygame.image.load('images/R11E.png')]
@@ -72,7 +137,7 @@ class enemy(object):
 		self.width = width
 		self.height = height
 		self.end = end
-		self.path = [self.x, self.end]
+		self.path = [50, self.end]
 		self.walkCount = 0
 		self.vel = 3
 		self.hitbox = (self.x + 17, self.y + 2, 31, 57)
@@ -117,13 +182,27 @@ class enemy(object):
 			self.health -= 1
 		else:
 			self.visible = False
-		print('hit')
+		#print('hit')
 
 def redrawGameWindow():
 	global walkCount
 	win.blit(bg, (0,0))
-	text = font.render('Score: ' + str(score), 1, (0,0,0))
+
+	textB = fontB.render(rows[0][2], 1, (0,0,128))
+	textC = font.render('Lives ' + str(man.lives), 1, (200,0,0))
+
+	if man.score > score[0][0]:
+		text = font.render('Score: ' + str(man.score), 1, (255, 128, 0))
+		textD = font.render('Record: ' + str(man.score), 1, (255, 128, 0))
+	else:
+		text = font.render('Score: ' + str(man.score), 1, (0, 0, 0))
+		textD = font.render('Record: ' + str(score[0][0]), 1, (255, 128, 0))
+
+
 	win.blit(text, (360, 10))
+	win.blit(textB, (10, 50))
+	win.blit(textC, (10, 10))
+	win.blit(textD, (360, 32))
 
 	man.draw(win)
 	goblin.draw(win)
@@ -134,14 +213,49 @@ def redrawGameWindow():
 
 #mainloop
 font = pygame.font.SysFont('comicsans', 30, True)
+fontB = pygame.font.SysFont('comicsans', 18, False, True)
 man = player(300, 410, 64, 64)
 goblin = enemy(100, 410, 64, 64, 450)
 shootLoop = 0
 bullets = []
 run = True
+wait_for_enemy = False
 
 while run:
 	clock.tick(27)
+
+	#win condition
+	if man.score >= 2000:
+		font1 = pygame.font.SysFont('comicsans', 23, True)
+		text = font1.render(rows[2][2], 1, (0, 128, 0))
+		win.blit(text, (250 - (text.get_width()/2), 230))
+		pygame.display.update()
+		pygame.mixer.music.stop()
+		pygame.mixer.music.set_volume(0.8)
+		winSound.play()
+		while True:
+			for event in pygame.event.get():
+				if event.type == pygame.QUIT:
+					cur.execute("INSERT INTO scores (score) VALUES (%s);", (man.score, ))
+					con.commit()
+					pygame.quit()
+					break
+
+
+	if goblin.visible == True:
+		if man.hitbox[1] < goblin.hitbox[1] + goblin.hitbox[3] and man.hitbox[1] + man.hitbox[3] > goblin.hitbox[1]:
+			if man.hitbox[0] + man.hitbox[2] > goblin.hitbox[0] and man.hitbox[0] < goblin.hitbox[0] + goblin.hitbox[2]:
+				screamSound.play()
+				man.hit()
+				#man.isJump = False
+				#man.jumpCount = 10
+				man.score -= 5
+	elif wait_for_enemy == 0:
+		pygame.mixer.stop()
+		deathSound.play()
+		wait_for_enemy = 50
+		#del goblin
+		#goblin = enemy(randint(90,400), 410, 64, 64, 450)
 
 	if shootLoop > 0:
 		shootLoop += 1
@@ -155,8 +269,9 @@ while run:
 	for bullet in bullets:
 		if bullet.y - bullet.radius < goblin.hitbox[1] + goblin.hitbox[3] and bullet.y + bullet.radius > goblin.hitbox[1]:
 			if bullet.x + bullet.radius > goblin.hitbox[0] and bullet.x - bullet.radius < goblin.hitbox[0] + goblin.hitbox[2]:
+				hitSound.play()
 				goblin.hit()
-				score += 1
+				man.score += 1
 				bullets.pop(bullets.index(bullet))
 
 		if bullet.x < 500 and bullet.x > 0:
@@ -166,7 +281,8 @@ while run:
 	
 	keys = pygame.key.get_pressed()
 
-	if keys[pygame.K_SPACE] and shootLoop == 0:
+	if keys[pygame.K_SPACE] and shootLoop == 0 and goblin.visible == True:
+		bulletSound.play()
 		if man.left:
 			facing = -1
 		else:
@@ -206,9 +322,11 @@ while run:
 			man.isJump = False
 			man.jumpCount = 10
 
+	if wait_for_enemy > 0:
+		wait_for_enemy -= 1
+		if wait_for_enemy == 0:
+			del goblin
+			goblin = enemy(randint(90,400), 410, 64, 64, 450)
 	redrawGameWindow()
-
-
-
 
 pygame.quit()
